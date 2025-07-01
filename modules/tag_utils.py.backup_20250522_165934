@@ -1,0 +1,227 @@
+import re
+from typing import List
+from habanero import Crossref
+import json
+from pprint import pprint
+
+
+def clean_tag(text: str) -> str:
+    """Clean text for use in tags"""
+    # Remove special characters and convert to lowercase
+    cleaned = re.sub(r"[^\w\s-]", "", text.lower())
+    # Replace spaces with hyphens and remove multiple hyphens
+    cleaned = re.sub(r"[-\s]+", "-", cleaned)
+    return cleaned.strip("-")
+
+
+def create_standard_tag(tag_type: str, value: str) -> List[str]:
+    """Create a standard tag with type and value"""
+    return [tag_type, value]
+
+
+def create_reference_tag(
+    kind: int, pubkey: str, d_tag: str, event_id: str, relay_hint: str = ""
+) -> List[str]:
+    """Create an 'a' tag following NIP-62 format
+    Format: ["a", "kind:pubkey:dtag", "<relay hint>", "<event id>"]
+    """
+    # Create the reference string without the dtag prefix
+    ref = f"{kind}:{pubkey}:{d_tag}"
+    return ["a", ref, relay_hint, event_id]
+
+
+def create_section_tags(
+    doc_title: str, section_title: str, doc_author: str = None, namespace: bool = False
+) -> List[List[str]]:
+    """Create tags for a section event following NIP-62 format"""
+    if namespace:
+        d_tag = f"{clean_tag(doc_title)}-{clean_tag(section_title)}"
+    else:
+        d_tag = clean_tag(section_title)
+
+    return [["d", d_tag], ["title", section_title]]
+
+
+def create_index_tags(
+    doc_title: str, auto_update: str = "yes", doc_author: str = None
+) -> List[List[str]]:
+    """Create initial tags for an index event"""
+    if doc_author:
+        return [
+            ["d", clean_tag(doc_title)],
+            ["title", doc_title],
+            ["auto-update", auto_update],
+            ["author", doc_author],
+            ["type", "book"],
+        ]
+    return [
+        ["d", clean_tag(doc_title)],
+        ["title", doc_title],
+        ["auto-update", auto_update],
+    ]
+
+
+def add_reference_to_index(
+    index_tags: List[List[str]], section_event: dict, d_tag: str, relay: str
+) -> List[List[str]]:
+    """Add a section reference to index tags
+    Following NIP-62 format for 'a' tags
+    """
+    ref_tag = create_reference_tag(
+        kind=section_event["kind"],
+        pubkey=section_event["pubkey"],
+        d_tag=d_tag,  # Use clean d_tag without prefix
+        event_id=section_event["id"],
+        relay_hint=relay,
+    )
+    index_tags.append(ref_tag)
+    return index_tags
+
+
+def create_external_tags(open_graph: dict, debug=False) -> List[List[str]]:
+    """Create an external event using the OpenGraph data and sections"""
+    # Extract necessary data from OpenGraph
+
+    meta = open_graph.get("meta", {})
+    tags = [
+        ["title", open_graph.get("title", "")],
+        ["type", open_graph.get("type", "")],
+        ["image", open_graph.get("image", "")],
+        ["url", open_graph.get("url", "")],
+    ]
+    if meta.get("description"):
+        tags.append(["summary", meta["description"]])
+    if meta.get("article:author"):
+        tags.append(["author", meta["article:author"]])
+    if meta.get("article:published_time"):
+        tags.append(["published_on", meta["article:published_time"]])
+    if meta.get("article:tag"):
+        for tag in meta["article:tag"]:
+            tags.append(["t", tag])
+    if meta.get("book:author"):
+        tags.append(["author", meta["book:author"]])
+    if meta.get("book:isbn"):
+        tags.append(["isbn", meta["book:isbn"]])
+    if meta.get("book:release_date"):
+        tags.append(["published_on", meta["book:release_date"]])
+    if debug:
+        for tag in tags:
+            print(f"Debug: Tag: {tag[0]} - Value: {tag[1]}")
+
+    return tags
+
+
+def fetch_doi_metadata(doi):
+    """
+    Example function to fetch a DOI and format it to match the specified JSON structure
+    """
+    # Clean DOI if it has a prefix
+    clean_doi = doi.replace("https://doi.org", "") if "https://doi.org" in doi else doi
+
+    # Initialize Crossref client
+    cr = Crossref()
+
+    try:
+        # Fetch metadata from Crossref
+        result = cr.works(ids=clean_doi)
+        metadata = result["message"]
+
+        # Format the tags according to the required structure
+        tags = []
+
+        # Cover image (using a generic pattern for Springer journals)
+        if "ISSN" in metadata and metadata["ISSN"]:
+            issn = metadata["ISSN"][0]
+            tags.append(["image", "https://i.nostr.build/kUoQk9R1PsWBN5nb.jpg"])
+
+        # Type
+        tags.append(["type", "academic"])
+
+        # Summary (title or abstract)
+        if "title" in metadata and metadata["title"]:
+            summary = metadata["title"][0]
+            if "abstract" in metadata and metadata["abstract"]:
+                # Use abstract instead if available (clean HTML tags)
+                summary = re.sub("<[^<]+?>", "", metadata["abstract"])
+            tags.append(["summary", summary])
+
+        # Published date
+        if "published" in metadata and "date-parts" in metadata["published"]:
+            date_parts = metadata["published"]["date-parts"][0]
+            if len(date_parts) >= 3:
+                published_date = (
+                    f"{date_parts[0]}-{date_parts[1]:02d}-{date_parts[2]:02d}"
+                )
+                tags.append(["published_on", published_date])
+
+        # Publisher
+        if "publisher" in metadata:
+            tags.append(["published_by", metadata["publisher"]])
+        else:
+            tags.append(["published_by", "public domain"])
+
+        # External flag
+        tags.append(["external", "true"])
+
+        # DOI identifier
+        tags.append(["i", f"doi:{clean_doi}"])
+        tags.append(["k", "doi"])
+
+        # Source URL
+        tags.append(["source", f"https://doi.org/{clean_doi}"])
+
+        # Language
+        lang = metadata.get("language", "en")
+        tags.append(["l", f"{lang}, ISO-639-1"])
+
+        # Reading direction
+        tags.append(["reading-direction", "left-to-right, top-to-bottom"])
+
+        # Version
+        tags.append(["version", "1"])
+
+        # MIME type
+        tags.append(["m", "application/json"])
+
+        # Meta type
+        tags.append(["M", "meta-data/index/replaceable"])
+
+        # Document ID (create slug from title and first author)
+        if "title" in metadata and metadata["title"]:
+            title_slug = re.sub(r"[^a-z0-9]", "-", metadata["title"][0].lower())
+            title_slug = re.sub(r"-+", "-", title_slug).strip("-")
+
+            first_author = ""
+            if "author" in metadata and metadata["author"]:
+                first_author = metadata["author"][0].get("family", "").lower()
+                first_author = re.sub(r"[^a-z0-9]", "-", first_author)
+
+            doc_id = (
+                f"{title_slug}-by-{first_author}-v-1"
+                if first_author
+                else f"{title_slug}-v-1"
+            )
+            tags.append(["d", doc_id])
+
+        # Title
+        if "title" in metadata and metadata["title"]:
+            tags.append(["title", metadata["title"][0]])
+
+        # Authors (in order as listed)
+        if "author" in metadata and metadata["author"]:
+            for author in metadata["author"]:
+                author_name = ""
+                if "given" in author:
+                    author_name += author["given"]
+                if "family" in author:
+                    if author_name:
+                        author_name += " "
+                    author_name += author["family"]
+
+                if author_name:
+                    tags.append(["author", author_name])
+
+    except Exception as e:
+        print(f"Error fetching DOI metadata: {e}")
+        return []
+    return tags

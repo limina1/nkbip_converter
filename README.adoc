@@ -1,0 +1,444 @@
+= AsciiDoc to NKBIP-01 Nostr Converter
+A tool for converting AsciiDoc documents into NKBIP-01 Curated publications.
+
+
+== Key Capabilities
+
+* Extracts metadata from AsciiDoc documents
+* Supports multiple relay publishing
+
+== INSTALLATION
+
+=== Prerequisites
+
+* Python 3.7+
+* Dependencies:
+** `nostr-sdk` or equivalent modules for Nostr event handling
+** AsciiDoc parsing capabilities
+
+=== Setup Process
+
+[source,bash]
+----
+# Clone repository
+git clone https://github.com/yourusername/asciidoc-to-nostr.git
+
+# Install dependencies
+cd asciidoc-to-nostr
+pip install -r requirements.txt
+----
+
+== USAGE FRAMEWORK
+
+=== Command Line Interface
+
+[source,bash]
+----
+python adoc_to_nostr.py --nsec <nsec_key_or_file_path>
+                        --relays <relay_url1> [<relay_url2> ...]
+                        --adoc-file <path_to_asciidoc_file>
+                        [--author <author_name>]
+                        [--author-pubkey <author_pubkey>]
+----
+
+=== Parameters
+
+[cols="1,3"]
+|===
+|Parameter |Description
+
+|`--nsec`
+|Your Nostr private key in nsec format or a file path containing your encrypted key
+
+|`--relays`
+|One or more Nostr relay URLs where events will be published
+
+|`--adoc-file`
+|Path to the AsciiDoc file to convert
+
+|`--author`
+|Optional author name (overrides document metadata if specified)
+
+|`--author-pubkey`
+|Optional author public key in hex or npub format
+|===
+
+=== Execution Example
+
+[source,bash]
+----
+python nkbip_converter.py --nsec nsec1your_private_key \
+                        --relays wss://relay.nostr.com wss://nostr.example.org \
+                        --adoc-file my_document.adoc \
+                        --author "Satoshi Nakamoto" \
+                        --author-pubkey npub1satoshis_public_key
+----
+
+=== Parsing Flow
+
+The converter implements a structured parsing methodology:
+
+. *Document Reading*: Loads and processes the AsciiDoc file
+. *Metadata Extraction*: Isolates and extracts metadata elements
+. *Section Organization*: Identifies hierarchical structure
+. *Event Generation*: Creates appropriate Nostr events
+. *Event Verification*: Validates event integrity
+. *Event Publication*: Transmits events to specified relays
+
+=== Metadata Extraction Process
+
+The converter systematically extracts metadata from the preamble section (between the document title and first content section):
+
+The extraction process:
+
+1. Identifies the document title (first level-1 heading)
+2. Locates the boundary between metadata and content sections
+3. Parses AsciiDoc attributes (`:key: value` format)
+4. Extracts non-attribute content as summary text
+5. Identifies and processes special elements (images, tags, etc.)
+
+=== Section Organization Principles
+
+Documents are parsed into a hierarchical structure:
+
+* *Level 1* (`=`): Document title or root section
+* *Level 2* (`==`): Primary sections or chapters
+* *Level 3+* (`===`, `====`, etc.): Subsections
+
+For each organizational level:
+
+* Content directly under level 1 headings is preserved
+* Level 2 sections are processed as independent content units
+* Level 3+ sections are incorporated into their parent level 2 sections
+
+== DOCUMENT SCHEMA SPECIFICATION
+
+=== Structure
+
+[source,asciidoc]
+----
+= Document Title
+image::https://example.com/cover-image.jpg[]
+:author: Author Name
+:published: YYYY-MM-DD
+:publisher: Publisher Name
+:other_attributes: values
+
+Summary text goes here. This can span multiple paragraphs and will be
+extracted as the publication summary.
+
+== First Section Title
+
+Section content...
+
+=== Subsection Title
+
+Subsection content...
+----
+
+=== Metadata Components
+
+==== Standard Attributes
+
+[cols="1,1,2"]
+|===
+|Attribute |NIP-62 Tag |Description
+
+|`:author:`
+|`author`
+|Document creator
+
+|`:published:`
+|`published_on`
+|Publication date (YYYY-MM-DD format)
+
+|`:publisher:`
+|`published_by`
+|Publishing entity
+
+|`:tags:`
+|`t`
+|Comma-separated list of topic tags
+
+|`:language:`
+|`l`
+|Content language (ISO format recommended)
+
+|`:version:`
+|`version`
+|Document version identifier
+
+|`:source:`
+|`source`
+|Original document source
+
+|`:type:`
+|`type`
+|Publication type (book, article, etc.)
+|===
+
+==== Customized Attributes
+
+Any additional attributes will be converted to corresponding tags in the NIP-62 event:
+
+[source,asciidoc]
+----
+:reading_direction: left-to-right
+----
+
+Becomes:
+
+[source,json]
+----
+["reading-direction", "left-to-right"]
+----
+
+Note: Multi-word attributes are converted to kebab-case in the resulting tags.
+
+==== Images
+
+Cover image immediately following title:
+
+[source,asciidoc]
+----
+= Document Title
+image::https://example.com/cover-image.jpg[]
+----
+
+In-content images:
+
+[source,asciidoc]
+----
+image::https://example.com/figure1.jpg[]
+----
+
+==== Summary Text
+
+All non-attribute text between the metadata section and first section heading is extracted as the document summary:
+
+[source,asciidoc]
+----
+= Document Title
+:author: Author Name
+
+This is the document summary. It will be used as the publication summary
+in the NIP-62 event.
+
+== First Section
+----
+
+=== Event Generation Framework
+
+The converter generates two types of events:
+
+==== Publication Content (kind 30041)
+
+* Created for each level 2 section
+* Contains section title, content, and relevant metadata
+
+==== Publication Index (kind 30040)
+
+* *Section Indices*: Created for each level 1 section, referencing its level 2 sections
+* *Root Index*: Master index referencing all section indices
+* Contains metadata from document preamble
+
+
+== TROUBLESHOOTING PROCEDURES
+
+=== Diagnostic Output
+
+The converter provides detailed progress information:
+
+* Metadata extraction summary
+* Event creation status
+* Publication references (nevent and naddr formats)
+
+=== Custom Metadata
+
+The converter supports arbitrary metadata attributes that will be converted to tags in the NIP-62 events. To add custom metadata:
+
+[source,asciidoc]
+----
+:custom_field: Custom Value
+----
+
+=== Relay Considerations
+
+* Primary relay is used for references but events are published to all specified relays
+* Publication coordinates (nevent and naddr) are provided for easy sharing
+
+== OER TO NOSTR PIPELINE
+
+The `oer_to_nkbip.py` tool enables conversion of Open Educational Resources (OER) metadata into NKBIP-01 compliant Nostr publications. This creates a bridge between traditional educational repositories and the decentralized Nostr ecosystem.
+
+=== Key Features
+
+* Fetches metadata from OER repositories (via OERSI API)
+* Supports three modes: Course, Standalone, and Collection
+* Flexible content sorting with pattern matching
+* Export to AsciiDoc for offline editing
+* Preserves all educational metadata (license, author, keywords, etc.)
+
+=== Usage Modes
+
+==== Course Mode (Default)
+For courses with multiple lectures/modules:
+
+[source,bash]
+----
+python oer_to_nkbip.py \
+    --nsec /path/to/key \
+    --relays wss://relay.com \
+    --oer-url https://oersi.org/resources/[course-id]
+----
+
+==== Standalone Mode
+For single educational resources (creates both index and content):
+
+[source,bash]
+----
+python oer_to_nkbip.py \
+    --nsec /path/to/key \
+    --relays wss://relay.com \
+    --oer-url https://oersi.org/resources/[resource-id] \
+    --standalone
+----
+
+==== Collection Mode
+For curating multiple resources into a single publication:
+
+[source,bash]
+----
+python oer_to_nkbip.py \
+    --nsec /path/to/key \
+    --relays wss://relay.com \
+    --oer-url [url1] [url2] [url3] \
+    --collection-title "Curated Learning Path on Topic X"
+----
+
+=== Content Sorting
+
+The tool supports sophisticated pattern-based sorting for organizing course materials:
+
+[source,bash]
+----
+python oer_to_nkbip.py \
+    --oer-url [course-url] \
+    --sort-pattern "1:^7\.016" \              # Course intro items first
+    --sort-pattern "2:Lecture (\d+)" \        # Lectures in numerical order
+    --sort-pattern "3:Exam (\d+)(?!.*Solution)" \  # Exams
+    --sort-pattern "4:Exam (\d+).*Solution"   # Exam solutions
+----
+
+Pattern format: `priority:regex` where:
+* `priority` - Lower numbers appear first
+* `regex` - Regular expression with optional capture group for numerical sorting
+
+Common patterns:
+* `"1:Lecture (\d+)"` - Lectures numbered 1, 2, 3...
+* `"1:Week (\d+)"` - Weekly modules
+* `"1:Module (\d+)"` - Modular courses
+* `"2:Assignment (\d+)"` - Assignments after lectures
+
+=== Export to AsciiDoc
+
+Export OER content to an editable AsciiDoc file:
+
+[source,bash]
+----
+python oer_to_nkbip.py \
+    --nsec /path/to/key \
+    --relays wss://relay.com \
+    --oer-url [course-url] \
+    --to-adoc course_content.adoc
+----
+
+This creates a structured AsciiDoc file with:
+* All course metadata preserved as attributes
+* Each lecture/module as a level 2 section
+* Placeholder content marked with comments
+* Source URLs preserved for reference
+
+==== Editing Workflow
+
+1. **Export**: Use `--to-adoc` to create the AsciiDoc file
+2. **Edit**: Add actual content (transcripts, notes, exercises)
+3. **Convert**: Use `nkbip_converter.py` to publish edited content
+4. **Publish**: Content becomes proper Nostr events with full text
+
+Example of exported structure:
+
+[source,asciidoc]
+----
+= Introduction to Biology
+:author: Prof. Jane Smith
+:published_on: 2024-01-15
+:license: https://creativecommons.org/licenses/by-nc-sa/4.0/
+:tags: biology, science, introductory
+
+Course description and overview...
+
+== Lecture 1: Introduction
+
+_Source: https://ocw.mit.edu/courses/.../lecture-1/_
+
+// TODO: Add actual content here
+
+== Lecture 2: Cell Biology
+
+_Source: https://ocw.mit.edu/courses/.../lecture-2/_
+
+// TODO: Add actual content here
+----
+
+=== Parameters Reference
+
+[cols="1,3"]
+|===
+|Parameter |Description
+
+|`--nsec`
+|Nostr private key (nsec format or file path)
+
+|`--relays`
+|One or more relay URLs for publishing
+
+|`--oer-url`
+|OER resource URL(s). Multiple URLs create a collection
+
+|`--standalone`
+|Treat single resource as standalone publication
+
+|`--collection-title`
+|Custom title when using multiple URLs
+
+|`--sort-pattern`
+|Regex pattern for sorting. Can be used multiple times
+
+|`--to-adoc`
+|Export to AsciiDoc file instead of publishing
+
+|`--dry-run`
+|Preview what would be created without publishing
+
+|`--env-pw`
+|Environment variable containing decryption password
+
+|`-y, --yes`
+|Auto-confirm all prompts
+|===
+
+=== Supported OER Sources
+
+Currently supports resources indexed by OERSI, including:
+* MIT OpenCourseWare
+* Other universities and institutions indexed by OERSI
+
+The tool extracts:
+* Course/resource title and description
+* Author/instructor information
+* Publication date and publisher
+* License information
+* Keywords and subject classifications
+* Language metadata
+* Course structure (lectures, exams, modules)
