@@ -24,6 +24,29 @@ def clean_tag(text: str) -> str:
     return cleaned.strip("-")
 
 
+def extract_wiki_links(content: str) -> List[str]:
+    """
+    Extract wiki links from content in the format [[{term}]]
+    Returns a list of unique terms found
+    """
+    # Pattern to match [[{term}]] - non-greedy match for term
+    pattern = r'\[\[([^\]]+)\]\]'
+    matches = re.findall(pattern, content)
+    
+    # Clean and deduplicate terms
+    wiki_terms = []
+    seen = set()
+    
+    for term in matches:
+        # Clean the term - remove extra whitespace, keep original case
+        cleaned_term = term.strip()
+        if cleaned_term and cleaned_term not in seen:
+            seen.add(cleaned_term)
+            wiki_terms.append(cleaned_term)
+    
+    return wiki_terms
+
+
 def create_standard_tag(tag_type: str, value: str) -> List[str]:
     """Create a standard tag with type and value"""
     return [tag_type, value]

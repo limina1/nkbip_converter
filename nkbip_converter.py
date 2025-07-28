@@ -14,6 +14,7 @@ from modules.tag_utils import (
     add_reference_to_index,
     fetch_doi_metadata,
     create_external_tags,
+    extract_wiki_links,
 )
 from modules.key_utils import read_encrypted_key
 from modules.event_creator import create_event
@@ -321,6 +322,11 @@ def create_content_event(
     if images:
         for image in images:
             tags.append(["image", image])
+
+    # Extract wiki links and create 'w' tags
+    wiki_links = extract_wiki_links(content)
+    for wiki_term in wiki_links:
+        tags.append(["w", wiki_term])
 
     tags.append(["m", "text/asciidoc"])
     if author:
