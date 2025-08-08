@@ -326,7 +326,7 @@ def create_content_event(
     # Extract wiki links and create 'w' tags
     wiki_links = extract_wiki_links(content)
     for wiki_term in wiki_links:
-        tags.append(["w", wiki_term])
+        tags.append(["w", clean_tag(wiki_term), wiki_term ])
 
     tags.append(["m", "text/asciidoc"])
     if author:
